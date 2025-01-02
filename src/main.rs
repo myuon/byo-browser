@@ -37,29 +37,6 @@ impl ApplicationHandler for App {
             }
             WindowEvent::RedrawRequested => {
                 {
-                    let html_guard = self.html.lock().unwrap();
-
-                    let title_text = Mutex::new(String::new());
-                    let body_text = Mutex::new(String::new());
-                    if let Some(html) = html_guard.as_ref() {
-                        html.walk(Rc::new(|name, _, children: Vec<HtmlElement>, _| {
-                            if name == "title" {
-                                for child in children {
-                                    if let Some(text_node) = child.text_node {
-                                        title_text.lock().unwrap().push_str(&text_node);
-                                    }
-                                }
-                            } else if name == "body" {
-                                for child in children {
-                                    if let Some(text_node) = child.text_node {
-                                        body_text.lock().unwrap().push_str(&text_node);
-                                    }
-                                }
-                            }
-                        }));
-                    }
-                    let body_text = body_text.lock().unwrap();
-
                     let window_lock = self.window.lock();
                     let window_guard = window_lock.as_ref().unwrap();
                     let window = window_guard.as_ref().unwrap();
@@ -81,9 +58,9 @@ impl ApplicationHandler for App {
                         skia_safe::surfaces::raster_n32_premul((width as i32, height as i32))
                             .unwrap();
                     let canvas = raster_surface.canvas();
-                    let mut paint = Paint::default();
-
                     canvas.clear(0xFFFFFFFF);
+
+                    let mut paint = Paint::default();
 
                     paint.set_argb(0xFF, 0x99, 0x99, 0x99);
                     canvas.draw_rect(Rect::new(0.0, 0.0, width as f32, 50.0), &paint);
@@ -103,27 +80,69 @@ impl ApplicationHandler for App {
                     paint.set_argb(0xFF, 0x00, 0x00, 0x00);
                     canvas.draw_text_blob(&text, (25, 60 + 36), &paint);
 
-                    let text = TextBlob::from_str(
-                        title_text.lock().unwrap().as_str(),
-                        &Font::from_typeface(default_typeface(), 32.0),
-                    );
-                    if let Some(text) = text {
-                        paint.set_argb(0xFF, 0x00, 0x00, 0x00);
-                        canvas.draw_text_blob(&text, (25, 5 + 32), &paint);
+                    if let Some(html) = self.html.lock().unwrap().as_ref() {
+                        let is_body = Mutex::new(false);
+                        let cursor_position = Mutex::new((25.0, 120.0 + 36.0));
+                        html.walk(Rc::new(
+                            move |name,
+                                  _,
+                                  children: Vec<HtmlElement>,
+                                  text_node: Option<String>| {
+                                let mut paint = Paint::default();
+
+                                if name == "title" {
+                                    let mut title = String::new();
+                                    for child in children {
+                                        title.push_str(&child.text_node.unwrap());
+                                        title.push_str(" ");
+                                    }
+
+                                    println!("Title: {}", title);
+
+                                    let text = TextBlob::from_str(
+                                        title,
+                                        &Font::from_typeface(default_typeface(), 32.0),
+                                    );
+                                    if let Some(text) = text {
+                                        paint.set_argb(0xFF, 0x00, 0x00, 0x00);
+                                        canvas.draw_text_blob(&text, (25, 5 + 32), &paint);
+                                    }
+                                } else if name == "body" {
+                                    *is_body.lock().unwrap() = true;
+                                }
+
+                                if is_body.lock().unwrap().clone() {
+                                    if let Some(text_node) = text_node {
+                                        let mut paint = Paint::default();
+                                        paint.set_argb(0xFF, 0x00, 0x00, 0x00);
+
+                                        let text = TextBlob::from_str(
+                                            &text_node,
+                                            &Font::from_typeface(default_typeface(), 32.0),
+                                        );
+                                        if let Some(text) = text {
+                                            paint.set_argb(0xFF, 0x00, 0x00, 0x00);
+                                            let pos = *cursor_position.lock().unwrap();
+                                            canvas.draw_text_blob(&text, (pos.0, pos.1), &paint);
+
+                                            let font =
+                                                Font::from_typeface(default_typeface(), 32.0);
+                                            let (_, rect) =
+                                                font.measure_str(text_node + " ", Some(&paint));
+
+                                            *cursor_position.lock().unwrap() =
+                                                (pos.0 + rect.width() + 8.0, pos.1);
+                                        }
+                                    }
+
+                                    if name == "br" {
+                                        let pos = *cursor_position.lock().unwrap();
+                                        *cursor_position.lock().unwrap() = (25.0, pos.1 + 36.0);
+                                    }
+                                }
+                            },
+                        ));
                     }
-
-                    let text = TextBlob::from_str(
-                        if body_text.len() > 0 {
-                            &body_text
-                        } else {
-                            "Loading..."
-                        },
-                        &Font::from_typeface(default_typeface(), 36.0),
-                    )
-                    .unwrap();
-
-                    paint.set_argb(0xFF, 0x00, 0x00, 0x00);
-                    canvas.draw_text_blob(&text, (20, 140 + 36), &paint);
 
                     let pixdata = canvas.peek_pixels().unwrap();
                     let pixdata = pixdata.bytes().unwrap();
