@@ -4,7 +4,7 @@ use std::rc::Rc;
 use std::sync::{Arc, Mutex};
 
 use helper::default_typeface;
-use html::HtmlElement;
+use html::{HtmlElement, NodeTrace};
 use skia_safe::{Font, Paint, Rect, TextBlob};
 use winit::application::ApplicationHandler;
 use winit::event::WindowEvent;
@@ -16,8 +16,11 @@ mod html;
 
 #[derive(Default)]
 struct App {
+    path: String,
     html: Arc<Mutex<Option<HtmlElement>>>,
     window: Arc<Mutex<Option<Window>>>,
+    mouse_cursor_position: Mutex<(f32, f32)>,
+    hyper_links: Arc<Mutex<Vec<(Rect, String)>>>,
 }
 
 impl ApplicationHandler for App {
@@ -82,16 +85,17 @@ impl ApplicationHandler for App {
 
                     if let Some(html) = self.html.lock().unwrap().as_ref() {
                         let cursor_position = Mutex::new((25.0, 120.0 + 36.0));
+                        let hyper_links = self.hyper_links.clone();
                         html.walk(Rc::new(
-                            move |trace: Vec<String>,
+                            move |trace: NodeTrace,
                                   name,
-                                  _,
+                                  attributes: Vec<(String, String)>,
                                   children: Vec<HtmlElement>,
                                   text_node: Option<String>| {
                                 println!("{:?} ({:?})", trace, name);
                                 let mut paint = Paint::default();
 
-                                if trace.ends_with(&["title".to_string()]) {
+                                if trace.names().ends_with(&["title".to_string()]) {
                                     let mut title = String::new();
                                     for child in children {
                                         title.push_str(&child.text_node.unwrap());
@@ -108,16 +112,13 @@ impl ApplicationHandler for App {
                                         paint.set_argb(0xFF, 0x00, 0x00, 0x00);
                                         canvas.draw_text_blob(&text, (25, 5 + 32), &paint);
                                     }
-                                } else if trace.contains(&"body".to_string()) {
-                                    let is_anchor =
-                                        trace.ends_with(&["a".to_string(), "textNode".to_string()]);
+                                } else if trace.names().contains(&"body".to_string()) {
+                                    let is_anchor = trace.names().ends_with(&["a".to_string()]);
                                     if let Some(text_node) = text_node {
                                         let mut paint = Paint::default();
+                                        let font = Font::from_typeface(default_typeface(), 32.0);
 
-                                        let text = TextBlob::from_str(
-                                            &text_node,
-                                            &Font::from_typeface(default_typeface(), 32.0),
-                                        );
+                                        let text = TextBlob::from_str(&text_node, &font);
                                         if let Some(text) = text {
                                             if is_anchor {
                                                 paint.set_argb(0xFF, 0x00, 0x55, 0xFF);
@@ -127,8 +128,32 @@ impl ApplicationHandler for App {
                                             let pos = *cursor_position.lock().unwrap();
                                             canvas.draw_text_blob(&text, (pos.0, pos.1), &paint);
 
-                                            let font =
-                                                Font::from_typeface(default_typeface(), 32.0);
+                                            if is_anchor {
+                                                let (_, rect) =
+                                                    font.measure_str(&text_node, Some(&paint));
+
+                                                println!("Hyperlink: {:?}", attributes);
+
+                                                hyper_links.lock().unwrap().push((
+                                                    Rect::new(
+                                                        pos.0,
+                                                        pos.1 - 32.0,
+                                                        pos.0 + rect.width(),
+                                                        pos.1 + rect.height() - 32.0,
+                                                    ),
+                                                    trace
+                                                        .0
+                                                        .last()
+                                                        .unwrap()
+                                                        .1
+                                                        .iter()
+                                                        .find(|(key, _)| key == "href")
+                                                        .unwrap()
+                                                        .1
+                                                        .clone(),
+                                                ));
+                                            }
+
                                             let (_, rect) =
                                                 font.measure_str(text_node + " ", Some(&paint));
 
@@ -162,8 +187,9 @@ impl ApplicationHandler for App {
                 let window = self.window.clone();
 
                 if self.html.clone().lock().unwrap().is_none() {
+                    let path = self.path.clone();
                     tokio::spawn(async move {
-                        let resp = fetch().await.unwrap();
+                        let resp = fetch(path).await.unwrap();
                         *html.lock().unwrap() = Some(html::parse_html(resp).unwrap());
 
                         let window = window.lock().unwrap();
@@ -171,13 +197,39 @@ impl ApplicationHandler for App {
                     });
                 }
             }
+            WindowEvent::CursorMoved { position, .. } => {
+                *self.mouse_cursor_position.lock().unwrap() =
+                    (position.x as f32, position.y as f32);
+            }
+            WindowEvent::MouseInput { .. } => {
+                let pos = self.mouse_cursor_position.lock().unwrap();
+                let links = self.hyper_links.lock().unwrap().clone();
+
+                for (link, path) in links.iter() {
+                    if link.x() <= pos.0
+                        && pos.0 <= link.right()
+                        && link.y() <= pos.1
+                        && pos.1 <= link.bottom()
+                    {
+                        self.path = path.clone();
+                        self.html = Arc::new(Mutex::new(None));
+                        self.hyper_links.lock().unwrap().clear();
+
+                        let window = self.window.lock().unwrap();
+                        window.as_ref().unwrap().request_redraw();
+                    }
+                }
+            }
             _ => (),
         }
     }
 }
 
-async fn fetch() -> Result<String, Box<dyn std::error::Error>> {
-    let resp = reqwest::get("http://localhost:8000").await?.text().await?;
+async fn fetch(path: String) -> Result<String, Box<dyn std::error::Error>> {
+    let resp = reqwest::get(format!("http://localhost:8000/{}", path))
+        .await?
+        .text()
+        .await?;
 
     Ok(resp)
 }

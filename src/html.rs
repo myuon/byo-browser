@@ -13,6 +13,15 @@ pub enum Token {
 }
 
 #[derive(Debug, PartialEq, Eq, Clone)]
+pub struct NodeTrace(pub Vec<(String, Vec<(String, String)>)>);
+
+impl NodeTrace {
+    pub fn names(&self) -> Vec<String> {
+        self.0.iter().map(|(n, _)| n.clone()).collect()
+    }
+}
+
+#[derive(Debug, PartialEq, Eq, Clone)]
 pub struct HtmlElement {
     pub name: String,
     pub attributes: Vec<(String, String)>,
@@ -22,23 +31,25 @@ pub struct HtmlElement {
 
 impl HtmlElement {
     pub fn walk<
-        F: Fn(Vec<String>, String, Vec<(String, String)>, Vec<HtmlElement>, Option<String>),
+        F: Fn(NodeTrace, String, Vec<(String, String)>, Vec<HtmlElement>, Option<String>),
     >(
         &self,
         f: Rc<F>,
     ) {
-        self.walk_trace(&mut vec![], f);
+        self.walk_trace(&mut NodeTrace(vec![]), f);
     }
 
     pub fn walk_trace<
-        F: Fn(Vec<String>, String, Vec<(String, String)>, Vec<HtmlElement>, Option<String>),
+        F: Fn(NodeTrace, String, Vec<(String, String)>, Vec<HtmlElement>, Option<String>),
     >(
         &self,
-        trace: &mut Vec<String>,
+        trace: &mut NodeTrace,
         f: Rc<F>,
     ) {
         let prev = trace.clone();
-        trace.push(self.name.clone());
+        if self.name != "textNode" {
+            trace.0.push((self.name.clone(), self.attributes.clone()));
+        }
 
         f(
             trace.clone(),
@@ -304,8 +315,9 @@ pub fn parse_html(str: String) -> Result<HtmlElement, anyhow::Error> {
 fn test_parse_html() {
     use pretty_assertions::assert_eq;
 
-    let cases = vec![(
-        r##"<html>
+    let cases = vec![
+        (
+            r##"<html>
   <head>
     <title>sample web page</title>
   </head>
@@ -314,172 +326,187 @@ fn test_parse_html() {
   </body>
 </html>
 "##,
-        HtmlElement {
-            name: "html".to_string(),
-            attributes: vec![],
-            children: vec![
-                HtmlElement {
-                    name: "head".to_string(),
-                    attributes: vec![],
-                    children: vec![HtmlElement {
-                        name: "title".to_string(),
+            HtmlElement {
+                name: "html".to_string(),
+                attributes: vec![],
+                children: vec![
+                    HtmlElement {
+                        name: "head".to_string(),
                         attributes: vec![],
+                        children: vec![HtmlElement {
+                            name: "title".to_string(),
+                            attributes: vec![],
+                            children: vec![
+                                HtmlElement {
+                                    name: "textNode".to_string(),
+                                    attributes: vec![],
+                                    children: vec![],
+                                    text_node: Some("sample".to_string()),
+                                },
+                                HtmlElement {
+                                    name: "textNode".to_string(),
+                                    attributes: vec![],
+                                    children: vec![],
+                                    text_node: Some("web".to_string()),
+                                },
+                                HtmlElement {
+                                    name: "textNode".to_string(),
+                                    attributes: vec![],
+                                    children: vec![],
+                                    text_node: Some("page".to_string()),
+                                },
+                            ],
+                            text_node: None,
+                        }],
+                        text_node: None,
+                    },
+                    HtmlElement {
+                        name: "body".to_string(),
+                        attributes: vec![
+                            ("bgcolor".to_string(), "#cccccc".to_string()),
+                            ("text".to_string(), "#ffffff".to_string()),
+                        ],
                         children: vec![
                             HtmlElement {
                                 name: "textNode".to_string(),
                                 attributes: vec![],
                                 children: vec![],
-                                text_node: Some("sample".to_string()),
+                                text_node: Some("Hello,".to_string()),
                             },
                             HtmlElement {
                                 name: "textNode".to_string(),
                                 attributes: vec![],
                                 children: vec![],
-                                text_node: Some("web".to_string()),
+                                text_node: Some("world!".to_string()),
                             },
                             HtmlElement {
                                 name: "textNode".to_string(),
                                 attributes: vec![],
                                 children: vec![],
-                                text_node: Some("page".to_string()),
+                                text_node: Some("This".to_string()),
+                            },
+                            HtmlElement {
+                                name: "textNode".to_string(),
+                                attributes: vec![],
+                                children: vec![],
+                                text_node: Some("is".to_string()),
+                            },
+                            HtmlElement {
+                                name: "textNode".to_string(),
+                                attributes: vec![],
+                                children: vec![],
+                                text_node: Some("a".to_string()),
+                            },
+                            HtmlElement {
+                                name: "a".to_string(),
+                                attributes: vec![("href".to_string(), "link1.html".to_string())],
+                                children: vec![HtmlElement {
+                                    name: "textNode".to_string(),
+                                    attributes: vec![],
+                                    children: vec![],
+                                    text_node: Some("link".to_string()),
+                                }],
+                                text_node: None,
+                            },
+                            HtmlElement {
+                                name: "textNode".to_string(),
+                                attributes: vec![],
+                                children: vec![],
+                                text_node: Some(".".to_string()),
+                            },
+                            HtmlElement {
+                                name: "textNode".to_string(),
+                                attributes: vec![],
+                                children: vec![],
+                                text_node: Some("This".to_string()),
+                            },
+                            HtmlElement {
+                                name: "textNode".to_string(),
+                                attributes: vec![],
+                                children: vec![],
+                                text_node: Some("is".to_string()),
+                            },
+                            HtmlElement {
+                                name: "br".to_string(),
+                                attributes: vec![],
+                                children: vec![],
+                                text_node: None,
+                            },
+                            HtmlElement {
+                                name: "textNode".to_string(),
+                                attributes: vec![],
+                                children: vec![],
+                                text_node: Some("a".to_string()),
+                            },
+                            HtmlElement {
+                                name: "textNode".to_string(),
+                                attributes: vec![],
+                                children: vec![],
+                                text_node: Some("new".to_string()),
+                            },
+                            HtmlElement {
+                                name: "textNode".to_string(),
+                                attributes: vec![],
+                                children: vec![],
+                                text_node: Some("line.".to_string()),
+                            },
+                            HtmlElement {
+                                name: "textNode".to_string(),
+                                attributes: vec![],
+                                children: vec![],
+                                text_node: Some("And".to_string()),
+                            },
+                            HtmlElement {
+                                name: "textNode".to_string(),
+                                attributes: vec![],
+                                children: vec![],
+                                text_node: Some("a".to_string()),
+                            },
+                            HtmlElement {
+                                name: "textNode".to_string(),
+                                attributes: vec![],
+                                children: vec![],
+                                text_node: Some("new".to_string()),
+                            },
+                            HtmlElement {
+                                name: "a".to_string(),
+                                attributes: vec![("href".to_string(), "link2.html".to_string())],
+                                children: vec![HtmlElement {
+                                    name: "textNode".to_string(),
+                                    attributes: vec![],
+                                    children: vec![],
+                                    text_node: Some("link".to_string()),
+                                }],
+                                text_node: None,
+                            },
+                            HtmlElement {
+                                name: "textNode".to_string(),
+                                attributes: vec![],
+                                children: vec![],
+                                text_node: Some(".".to_string()),
                             },
                         ],
                         text_node: None,
-                    }],
-                    text_node: None,
-                },
-                HtmlElement {
-                    name: "body".to_string(),
-                    attributes: vec![
-                        ("bgcolor".to_string(), "#cccccc".to_string()),
-                        ("text".to_string(), "#ffffff".to_string()),
-                    ],
-                    children: vec![
-                        HtmlElement {
-                            name: "textNode".to_string(),
-                            attributes: vec![],
-                            children: vec![],
-                            text_node: Some("Hello,".to_string()),
-                        },
-                        HtmlElement {
-                            name: "textNode".to_string(),
-                            attributes: vec![],
-                            children: vec![],
-                            text_node: Some("world!".to_string()),
-                        },
-                        HtmlElement {
-                            name: "textNode".to_string(),
-                            attributes: vec![],
-                            children: vec![],
-                            text_node: Some("This".to_string()),
-                        },
-                        HtmlElement {
-                            name: "textNode".to_string(),
-                            attributes: vec![],
-                            children: vec![],
-                            text_node: Some("is".to_string()),
-                        },
-                        HtmlElement {
-                            name: "textNode".to_string(),
-                            attributes: vec![],
-                            children: vec![],
-                            text_node: Some("a".to_string()),
-                        },
-                        HtmlElement {
-                            name: "a".to_string(),
-                            attributes: vec![("href".to_string(), "link1.html".to_string())],
-                            children: vec![HtmlElement {
-                                name: "textNode".to_string(),
-                                attributes: vec![],
-                                children: vec![],
-                                text_node: Some("link".to_string()),
-                            }],
-                            text_node: None,
-                        },
-                        HtmlElement {
-                            name: "textNode".to_string(),
-                            attributes: vec![],
-                            children: vec![],
-                            text_node: Some(".".to_string()),
-                        },
-                        HtmlElement {
-                            name: "textNode".to_string(),
-                            attributes: vec![],
-                            children: vec![],
-                            text_node: Some("This".to_string()),
-                        },
-                        HtmlElement {
-                            name: "textNode".to_string(),
-                            attributes: vec![],
-                            children: vec![],
-                            text_node: Some("is".to_string()),
-                        },
-                        HtmlElement {
-                            name: "br".to_string(),
-                            attributes: vec![],
-                            children: vec![],
-                            text_node: None,
-                        },
-                        HtmlElement {
-                            name: "textNode".to_string(),
-                            attributes: vec![],
-                            children: vec![],
-                            text_node: Some("a".to_string()),
-                        },
-                        HtmlElement {
-                            name: "textNode".to_string(),
-                            attributes: vec![],
-                            children: vec![],
-                            text_node: Some("new".to_string()),
-                        },
-                        HtmlElement {
-                            name: "textNode".to_string(),
-                            attributes: vec![],
-                            children: vec![],
-                            text_node: Some("line.".to_string()),
-                        },
-                        HtmlElement {
-                            name: "textNode".to_string(),
-                            attributes: vec![],
-                            children: vec![],
-                            text_node: Some("And".to_string()),
-                        },
-                        HtmlElement {
-                            name: "textNode".to_string(),
-                            attributes: vec![],
-                            children: vec![],
-                            text_node: Some("a".to_string()),
-                        },
-                        HtmlElement {
-                            name: "textNode".to_string(),
-                            attributes: vec![],
-                            children: vec![],
-                            text_node: Some("new".to_string()),
-                        },
-                        HtmlElement {
-                            name: "a".to_string(),
-                            attributes: vec![("href".to_string(), "link2.html".to_string())],
-                            children: vec![HtmlElement {
-                                name: "textNode".to_string(),
-                                attributes: vec![],
-                                children: vec![],
-                                text_node: Some("link".to_string()),
-                            }],
-                            text_node: None,
-                        },
-                        HtmlElement {
-                            name: "textNode".to_string(),
-                            attributes: vec![],
-                            children: vec![],
-                            text_node: Some(".".to_string()),
-                        },
-                    ],
-                    text_node: None,
-                },
-            ],
-            text_node: None,
-        },
-    )];
+                    },
+                ],
+                text_node: None,
+            },
+        ),
+        (
+            r##"<a href="link.html">LINK</a>"##,
+            HtmlElement {
+                name: "a".to_string(),
+                attributes: vec![("href".to_string(), "link.html".to_string())],
+                children: vec![HtmlElement {
+                    name: "textNode".to_string(),
+                    attributes: vec![],
+                    children: vec![],
+                    text_node: Some("LINK".to_string()),
+                }],
+                text_node: None,
+            },
+        ),
+    ];
 
     for (str, want) in cases {
         assert_eq!(parse_html(str.to_string()).unwrap(), want);
