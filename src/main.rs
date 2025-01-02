@@ -97,11 +97,23 @@ impl ApplicationHandler for App {
     }
 }
 
-fn main() {
+async fn fetch() -> Result<(), Box<dyn std::error::Error>> {
+    let resp = reqwest::get("http://localhost:8000").await?.text().await?;
+    println!("Response: {resp}");
+
+    Ok(())
+}
+
+#[tokio::main]
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    fetch().await?;
+
     let event_loop = EventLoop::new().unwrap();
 
     event_loop.set_control_flow(ControlFlow::Wait);
 
     let mut app = App::default();
     event_loop.run_app(&mut app).unwrap();
+
+    Ok(())
 }
