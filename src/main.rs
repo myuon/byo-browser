@@ -36,10 +36,17 @@ impl ApplicationHandler for App {
                 {
                     let html_guard = self.html.lock().unwrap();
 
+                    let title_text = Mutex::new(String::new());
                     let body_text = Mutex::new(String::new());
                     if let Some(html) = html_guard.as_ref() {
                         html.walk(Rc::new(|name, _, children: Vec<HtmlElement>, _| {
-                            if name == "body" {
+                            if name == "title" {
+                                for child in children {
+                                    if let Some(text_node) = child.text_node {
+                                        title_text.lock().unwrap().push_str(&text_node);
+                                    }
+                                }
+                            } else if name == "body" {
                                 for child in children {
                                     if let Some(text_node) = child.text_node {
                                         body_text.lock().unwrap().push_str(&text_node);
@@ -92,6 +99,15 @@ impl ApplicationHandler for App {
 
                     paint.set_argb(0xFF, 0x00, 0x00, 0x00);
                     canvas.draw_text_blob(&text, (25, 60 + 36), &paint);
+
+                    let text = TextBlob::from_str(
+                        title_text.lock().unwrap().as_str(),
+                        &Font::from_typeface(default_typeface(), 32.0),
+                    );
+                    if let Some(text) = text {
+                        paint.set_argb(0xFF, 0x00, 0x00, 0x00);
+                        canvas.draw_text_blob(&text, (25, 5 + 32), &paint);
+                    }
 
                     let text = TextBlob::from_str(
                         if body_text.len() > 0 {
