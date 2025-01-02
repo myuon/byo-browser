@@ -1,4 +1,5 @@
 use std::num::NonZeroU32;
+use std::sync::{Arc, Mutex};
 
 use helper::default_typeface;
 use skia_safe::{Font, Paint, Rect, TextBlob};
@@ -11,16 +12,17 @@ mod helper;
 
 #[derive(Default)]
 struct App {
-    window: Option<Window>,
+    html: Arc<Mutex<String>>,
+    window: Arc<Mutex<Option<Window>>>,
 }
 
 impl ApplicationHandler for App {
     fn resumed(&mut self, event_loop: &ActiveEventLoop) {
-        self.window = Some(
+        self.window = Arc::new(Mutex::new(Some(
             event_loop
                 .create_window(Window::default_attributes())
                 .unwrap(),
-        );
+        )));
     }
 
     fn window_event(&mut self, event_loop: &ActiveEventLoop, _id: WindowId, event: WindowEvent) {
@@ -30,12 +32,15 @@ impl ApplicationHandler for App {
                 event_loop.exit();
             }
             WindowEvent::RedrawRequested => {
-                let context = softbuffer::Context::new(self.window.as_ref().unwrap()).unwrap();
-                let mut surface =
-                    softbuffer::Surface::new(&context, self.window.as_ref().unwrap()).unwrap();
+                println!("html: {}", self.html.lock().unwrap());
+                let window_lock = self.window.lock();
+                let window_guard = window_lock.as_ref().unwrap();
+                let window = window_guard.as_ref().unwrap();
+                let context = softbuffer::Context::new(&window).unwrap();
+                let mut surface = softbuffer::Surface::new(&context, &window).unwrap();
 
                 let (width, height) = {
-                    let size = self.window.as_ref().unwrap().inner_size();
+                    let size = window.inner_size();
                     (size.width, size.height)
                 };
                 surface
@@ -90,6 +95,20 @@ impl ApplicationHandler for App {
                 }
                 buffer.present().unwrap();
 
+                let html = self.html.clone();
+                let window = self.window.clone();
+                let is_empty = html.lock().unwrap().is_empty();
+                if is_empty {
+                    tokio::spawn(async move {
+                        let resp = fetch().await.unwrap();
+
+                        *html.lock().unwrap() = resp;
+
+                        let window = window.lock().unwrap();
+                        window.as_ref().unwrap().request_redraw();
+                    });
+                }
+
                 // self.window.as_ref().unwrap().request_redraw();
             }
             _ => (),
@@ -97,17 +116,14 @@ impl ApplicationHandler for App {
     }
 }
 
-async fn fetch() -> Result<(), Box<dyn std::error::Error>> {
+async fn fetch() -> Result<String, Box<dyn std::error::Error>> {
     let resp = reqwest::get("http://localhost:8000").await?.text().await?;
-    println!("Response: {resp}");
 
-    Ok(())
+    Ok(resp)
 }
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    fetch().await?;
-
     let event_loop = EventLoop::new().unwrap();
 
     event_loop.set_control_flow(ControlFlow::Wait);
