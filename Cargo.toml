@@ -7,6 +7,7 @@ edition = "2021"
 
 [dependencies]
 anyhow = "1.0.95"
+pretty_assertions = "1.4.1"
 reqwest = { version = "0.12.12", features = ["json"] }
 skia-safe = "0.80.1"
 softbuffer = "0.4.6"
