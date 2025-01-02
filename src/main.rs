@@ -218,16 +218,26 @@ fn tokenize_html(str: String) -> Vec<Token> {
         } else if chars[position] == '"' {
             let mut text = String::new();
             position += 1;
-            while position < chars.len() && chars[position] != '"' {
+            while position < chars.len() {
                 text.push(chars[position]);
                 position += 1;
+
+                if position < chars.len() && chars[position] == '"' {
+                    break;
+                }
             }
             tokens.push(Token::QuotedText(text));
+            position += 1;
         } else {
             let mut text = String::new();
             text.push(chars[position]);
             position += 1;
-            while position < chars.len() && chars[position] != '<' && chars[position] != '>' {
+            while position < chars.len()
+                && chars[position] != ' '
+                && chars[position] != '<'
+                && chars[position] != '>'
+                && chars[position] != '='
+            {
                 text.push(chars[position]);
                 position += 1;
             }
@@ -236,6 +246,47 @@ fn tokenize_html(str: String) -> Vec<Token> {
     }
 
     tokens
+}
+
+#[test]
+fn test_tokenize_html() {
+    let cases = vec![
+        (
+            "<html></html>",
+            vec![
+                Token::LAngle,
+                Token::Text("html".to_string()),
+                Token::RAngle,
+                Token::LAngle,
+                Token::Slash,
+                Token::Text("html".to_string()),
+                Token::RAngle,
+            ],
+        ),
+        (
+            r##"<body bgcolor="#ffffff">This is a paragraph</body>"##,
+            vec![
+                Token::LAngle,
+                Token::Text("body".to_string()),
+                Token::Text("bgcolor".to_string()),
+                Token::Equal,
+                Token::QuotedText("#ffffff".to_string()),
+                Token::RAngle,
+                Token::Text("This".to_string()),
+                Token::Text("is".to_string()),
+                Token::Text("a".to_string()),
+                Token::Text("paragraph".to_string()),
+                Token::LAngle,
+                Token::Slash,
+                Token::Text("body".to_string()),
+                Token::RAngle,
+            ],
+        ),
+    ];
+
+    for (str, want) in cases {
+        assert_eq!(tokenize_html(str.to_string()), want);
+    }
 }
 
 struct HtmlParser {
@@ -253,7 +304,10 @@ impl HtmlParser {
 
     fn expect(&mut self, token: Token) {
         if self.tokens[self.position] != token {
-            panic!("Unexpected token");
+            panic!(
+                "Unexpected token: {:?} ({})",
+                self.tokens[self.position], self.position
+            );
         }
         self.position += 1;
     }
@@ -270,6 +324,35 @@ impl HtmlParser {
         }
     }
 
+    fn expect_quoted_text(&mut self) -> String {
+        if let Token::QuotedText(text) = &self.tokens[self.position] {
+            self.position += 1;
+            text.clone()
+        } else {
+            panic!(
+                "Unexpected token: {:?} ({})",
+                self.tokens[self.position], self.position
+            );
+        }
+    }
+
+    fn attribute(&mut self) -> (String, String) {
+        let key = self.expect_text();
+        self.expect(Token::Equal);
+        let value = self.expect_quoted_text();
+        (key, value)
+    }
+
+    fn attributes(&mut self) -> Vec<(String, String)> {
+        let mut attributes = vec![];
+
+        while self.position < self.tokens.len() && self.tokens[self.position] != Token::RAngle {
+            attributes.push(self.attribute());
+        }
+
+        attributes
+    }
+
     fn element(&mut self) -> HtmlElement {
         if self.tokens[self.position] != Token::LAngle {
             return HtmlElement {
@@ -282,6 +365,7 @@ impl HtmlParser {
 
         self.expect(Token::LAngle);
         let name = self.expect_text();
+        let attributes = self.attributes();
         self.expect(Token::RAngle);
 
         let children: Vec<HtmlElement> = self.elements();
@@ -293,7 +377,7 @@ impl HtmlParser {
 
         HtmlElement {
             name,
-            attributes: vec![],
+            attributes,
             children,
             text_node: None,
         }
@@ -314,8 +398,11 @@ impl HtmlParser {
 }
 
 fn parse_html(str: String) -> HtmlElement {
+    println!("Parsing HTML: {}", str);
     let tokens = tokenize_html(str);
+    println!("Tokens: {:?}", tokens);
     let mut parser = HtmlParser::new(tokens);
+    println!("Element: {:?}", parser.element());
     parser.element()
 }
 
