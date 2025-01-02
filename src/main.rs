@@ -1,4 +1,5 @@
 use std::num::NonZeroU32;
+use std::process::{Child, Command};
 use std::rc::Rc;
 use std::sync::{Arc, Mutex};
 
@@ -406,8 +407,54 @@ fn parse_html(str: String) -> HtmlElement {
     parser.element()
 }
 
+struct DroppableProcess {
+    child: Child,
+}
+
+impl DroppableProcess {
+    fn new(command: &mut Command) -> Result<Self, Box<dyn std::error::Error>> {
+        let child = command.spawn()?;
+        Ok(Self { child })
+    }
+}
+
+impl Drop for DroppableProcess {
+    fn drop(&mut self) {
+        println!("Killing child process");
+
+        if let Err(err) = self.child.kill() {
+            eprintln!("Failed to kill child process: {}", err);
+        }
+    }
+}
+
+async fn ensure_server_started(url: &str, timeout: std::time::Duration) -> Result<(), String> {
+    let start = std::time::Instant::now();
+    while start.elapsed() < timeout {
+        if let Ok(response) = reqwest::get(url).await {
+            if response.status().is_success() {
+                return Ok(());
+            }
+        }
+
+        tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+    }
+    Err("Server did not start within the timeout".into())
+}
+
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    // extend the lifetime of the process to the end of the program
+    let _process: DroppableProcess = DroppableProcess::new(
+        Command::new("python")
+            .arg("-m")
+            .arg("http.server")
+            .arg("8000")
+            .arg("-d")
+            .arg("public"),
+    )?;
+    ensure_server_started("http://localhost:8000", std::time::Duration::from_secs(5)).await?;
+
     let event_loop = EventLoop::new().unwrap();
 
     event_loop.set_control_flow(ControlFlow::Wait);
