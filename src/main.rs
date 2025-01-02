@@ -143,7 +143,7 @@ impl ApplicationHandler for App {
                 if self.html.clone().lock().unwrap().is_none() {
                     tokio::spawn(async move {
                         let resp = fetch().await.unwrap();
-                        *html.lock().unwrap() = Some(html::parse_html(resp));
+                        *html.lock().unwrap() = Some(html::parse_html(resp).unwrap());
 
                         let window = window.lock().unwrap();
                         window.as_ref().unwrap().request_redraw();

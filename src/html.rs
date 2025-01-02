@@ -1,5 +1,7 @@
 use std::rc::Rc;
 
+use anyhow::{bail, Context};
+
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub enum Token {
     LAngle,
@@ -144,127 +146,140 @@ impl HtmlParser {
         }
     }
 
-    fn expect(&mut self, token: Token) {
+    fn peek(&self) -> Option<&Token> {
+        if self.position < self.tokens.len() {
+            Some(&self.tokens[self.position])
+        } else {
+            None
+        }
+    }
+
+    fn expect(&mut self, token: Token) -> Result<(), anyhow::Error> {
         if self.tokens[self.position] != token {
-            panic!(
-                "Unexpected token: {:?} ({})",
+            bail!(
+                "Want {:?}, but got {:?} ({})",
+                token,
                 &self.tokens[self.position..],
                 self.position
             );
         }
         self.position += 1;
+
+        Ok(())
     }
 
-    fn expect_text(&mut self) -> String {
+    fn expect_text(&mut self) -> Result<String, anyhow::Error> {
         if let Token::Text(text) = &self.tokens[self.position] {
             self.position += 1;
-            text.clone()
+            Ok(text.clone())
         } else {
-            panic!(
-                "Unexpected token: {:?} ({})",
+            bail!(
+                "Want text, but got {:?} ({})",
                 &self.tokens[self.position..],
                 self.position
             );
         }
     }
 
-    fn expect_quoted_text(&mut self) -> String {
+    fn expect_quoted_text(&mut self) -> Result<String, anyhow::Error> {
         if let Token::QuotedText(text) = &self.tokens[self.position] {
             self.position += 1;
-            text.clone()
+            Ok(text.clone())
         } else {
-            panic!(
-                "Unexpected token: {:?} ({})",
+            bail!(
+                "Want quoted text, but got {:?} ({})",
                 &self.tokens[self.position..],
                 self.position
             );
         }
     }
 
-    fn attribute(&mut self) -> (String, String) {
-        let key = self.expect_text();
-        self.expect(Token::Equal);
-        let value = self.expect_quoted_text();
-        (key, value)
+    fn attribute(&mut self) -> Result<(String, String), anyhow::Error> {
+        let key = self.expect_text()?;
+        self.expect(Token::Equal)?;
+        let value = self.expect_quoted_text()?;
+        Ok((key, value))
     }
 
-    fn attributes(&mut self) -> Vec<(String, String)> {
+    fn attributes(&mut self) -> Result<Vec<(String, String)>, anyhow::Error> {
         let mut attributes = vec![];
 
-        while self.position < self.tokens.len() && self.tokens[self.position] != Token::RAngle {
-            attributes.push(self.attribute());
+        while self.peek() != Some(&Token::RAngle) {
+            attributes.push(self.attribute()?);
         }
 
-        attributes
+        Ok(attributes)
     }
 
-    fn element(&mut self) -> HtmlElement {
-        if self.tokens[self.position] != Token::LAngle {
-            return HtmlElement {
+    fn element(&mut self) -> Result<HtmlElement, anyhow::Error> {
+        if self.peek() != Some(&Token::LAngle) {
+            return Ok(HtmlElement {
                 name: "textNode".to_string(),
                 attributes: vec![],
                 children: vec![],
-                text_node: Some(self.expect_text()),
-            };
+                text_node: Some(self.expect_text()?),
+            });
         }
 
-        self.expect(Token::LAngle);
-        let name = self.expect_text();
-        let attributes = self.attributes();
-        if self.tokens[self.position] == Token::Slash {
-            self.expect(Token::Slash);
-            self.expect(Token::RAngle);
-            return HtmlElement {
+        self.expect(Token::LAngle)?;
+        let name = self.expect_text()?;
+        let attributes = self.attributes()?;
+        if self.peek() == Some(&Token::Slash) {
+            self.expect(Token::Slash)?;
+            self.expect(Token::RAngle)?;
+            return Ok(HtmlElement {
                 name,
                 attributes,
                 children: vec![],
                 text_node: None,
-            };
+            });
         }
-        self.expect(Token::RAngle);
+        self.expect(Token::RAngle)?;
 
         let children: Vec<HtmlElement> = if self.tokens[self.position] == Token::LAngle
             && self.tokens[self.position + 1] == Token::Slash
         {
             vec![]
         } else {
-            self.elements()
+            self.elements().context(format!("children of {}", name))?
         };
 
-        self.expect(Token::LAngle);
-        self.expect(Token::Slash);
-        self.expect(Token::Text(name.clone()));
-        self.expect(Token::RAngle);
+        self.expect(Token::LAngle)?;
+        self.expect(Token::Slash)?;
+        self.expect(Token::Text(name.clone()))?;
+        self.expect(Token::RAngle)?;
 
-        HtmlElement {
+        Ok(HtmlElement {
             name,
             attributes,
             children,
             text_node: None,
-        }
+        })
     }
 
-    fn elements(&mut self) -> Vec<HtmlElement> {
+    fn elements(&mut self) -> Result<Vec<HtmlElement>, anyhow::Error> {
         let mut elements = vec![];
 
         while self.position < self.tokens.len()
             && !(self.tokens[self.position] == Token::LAngle
                 && self.tokens[self.position + 1] == Token::Slash)
         {
-            elements.push(self.element());
+            elements.push(self.element()?);
         }
 
-        elements
+        Ok(elements)
     }
 }
 
-pub fn parse_html(str: String) -> HtmlElement {
+pub fn parse_html(str: String) -> Result<HtmlElement, anyhow::Error> {
     println!("Parsing HTML: {}", str);
     let tokens = tokenize_html(str);
     println!("Tokens: {:?}", tokens);
     let mut parser = HtmlParser::new(tokens);
-    println!("Element: {:?}", parser.element());
-    parser.element()
+    let element = parser.element()?;
+    println!("Element: {:?}", element);
+
+    Ok(element)
 }
 
 #[test]
@@ -298,6 +313,6 @@ fn test_parse_html() {
     )];
 
     for (str, want) in cases {
-        assert_eq!(parse_html(str.to_string()), want);
+        assert_eq!(parse_html(str.to_string()).unwrap(), want);
     }
 }
