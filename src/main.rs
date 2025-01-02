@@ -81,16 +81,17 @@ impl ApplicationHandler for App {
                     canvas.draw_text_blob(&text, (25, 60 + 36), &paint);
 
                     if let Some(html) = self.html.lock().unwrap().as_ref() {
-                        let is_body = Mutex::new(false);
                         let cursor_position = Mutex::new((25.0, 120.0 + 36.0));
                         html.walk(Rc::new(
-                            move |name,
+                            move |trace: Vec<String>,
+                                  name,
                                   _,
                                   children: Vec<HtmlElement>,
                                   text_node: Option<String>| {
+                                println!("{:?} ({:?})", trace, name);
                                 let mut paint = Paint::default();
 
-                                if name == "title" {
+                                if trace.ends_with(&["title".to_string()]) {
                                     let mut title = String::new();
                                     for child in children {
                                         title.push_str(&child.text_node.unwrap());
@@ -107,21 +108,22 @@ impl ApplicationHandler for App {
                                         paint.set_argb(0xFF, 0x00, 0x00, 0x00);
                                         canvas.draw_text_blob(&text, (25, 5 + 32), &paint);
                                     }
-                                } else if name == "body" {
-                                    *is_body.lock().unwrap() = true;
-                                }
-
-                                if is_body.lock().unwrap().clone() {
+                                } else if trace.contains(&"body".to_string()) {
+                                    let is_anchor =
+                                        trace.ends_with(&["a".to_string(), "textNode".to_string()]);
                                     if let Some(text_node) = text_node {
                                         let mut paint = Paint::default();
-                                        paint.set_argb(0xFF, 0x00, 0x00, 0x00);
 
                                         let text = TextBlob::from_str(
                                             &text_node,
                                             &Font::from_typeface(default_typeface(), 32.0),
                                         );
                                         if let Some(text) = text {
-                                            paint.set_argb(0xFF, 0x00, 0x00, 0x00);
+                                            if is_anchor {
+                                                paint.set_argb(0xFF, 0x00, 0x55, 0xFF);
+                                            } else {
+                                                paint.set_argb(0xFF, 0x00, 0x00, 0x00);
+                                            }
                                             let pos = *cursor_position.lock().unwrap();
                                             canvas.draw_text_blob(&text, (pos.0, pos.1), &paint);
 

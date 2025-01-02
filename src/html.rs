@@ -21,11 +21,27 @@ pub struct HtmlElement {
 }
 
 impl HtmlElement {
-    pub fn walk<F: Fn(String, Vec<(String, String)>, Vec<HtmlElement>, Option<String>)>(
+    pub fn walk<
+        F: Fn(Vec<String>, String, Vec<(String, String)>, Vec<HtmlElement>, Option<String>),
+    >(
         &self,
         f: Rc<F>,
     ) {
+        self.walk_trace(&mut vec![], f);
+    }
+
+    pub fn walk_trace<
+        F: Fn(Vec<String>, String, Vec<(String, String)>, Vec<HtmlElement>, Option<String>),
+    >(
+        &self,
+        trace: &mut Vec<String>,
+        f: Rc<F>,
+    ) {
+        let prev = trace.clone();
+        trace.push(self.name.clone());
+
         f(
+            trace.clone(),
             self.name.clone(),
             self.attributes.clone(),
             self.children.clone(),
@@ -33,8 +49,10 @@ impl HtmlElement {
         );
 
         for child in &self.children {
-            child.walk(f.clone());
+            child.walk_trace(trace, f.clone());
         }
+
+        *trace = prev;
     }
 }
 
