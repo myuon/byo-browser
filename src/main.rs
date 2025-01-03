@@ -75,7 +75,7 @@ impl ApplicationHandler for App {
                     canvas.draw_rect(Rect::new(20.0, 60.0, 1000.0, 110.0), &paint);
 
                     let text = TextBlob::from_str(
-                        "http://localhost:8000",
+                        format!("http://localhost:8000/{}", self.path),
                         &Font::from_typeface(default_typeface(), 32.0),
                     )
                     .unwrap();
