@@ -33,21 +33,25 @@ impl HtmlElement {
     pub fn walk<
         D,
         F: Fn(NodeTrace, String, Vec<(String, String)>, Vec<HtmlElement>, Option<String>, &mut D),
+        G: Fn(String, &mut D),
     >(
         &self,
         f: Rc<F>,
+        g: Rc<G>,
         d: &mut D,
     ) {
-        self.walk_trace(&mut NodeTrace(vec![]), f, d);
+        self.walk_trace(&mut NodeTrace(vec![]), f, g, d);
     }
 
     pub fn walk_trace<
         D,
         F: Fn(NodeTrace, String, Vec<(String, String)>, Vec<HtmlElement>, Option<String>, &mut D),
+        G: Fn(String, &mut D),
     >(
         &self,
         trace: &mut NodeTrace,
         f: Rc<F>,
+        g: Rc<G>,
         d: &mut D,
     ) {
         let prev = trace.clone();
@@ -65,8 +69,10 @@ impl HtmlElement {
         );
 
         for child in &self.children {
-            child.walk_trace(trace, f.clone(), d);
+            child.walk_trace(trace, f.clone(), g.clone(), d);
         }
+
+        g(self.name.clone(), d);
 
         *trace = prev;
     }

@@ -126,7 +126,7 @@ impl ApplicationHandler for App {
                                       children: Vec<HtmlElement>,
                                       text_node: Option<String>,
                                       state: &mut RendererState| {
-                                    println!("{:?} ({:?})", trace, name);
+                                    println!("{:?} ({:?}:{:?})", trace, name, text_node);
                                     let mut paint = PaintExt::default();
 
                                     if trace.names().ends_with(&["title".to_string()]) {
@@ -223,6 +223,11 @@ impl ApplicationHandler for App {
                                     }
                                 },
                             ),
+                            Rc::new(move |name: String, state: &mut RendererState| {
+                                if name == "div" {
+                                    state.cursor_position = (25.0, state.cursor_position.1 + 36.0);
+                                }
+                            }),
                             &mut state,
                         );
 
