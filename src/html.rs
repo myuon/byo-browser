@@ -1,4 +1,4 @@
-use std::{collections::HashMap, rc::Rc};
+use std::rc::Rc;
 
 use anyhow::{bail, Context};
 
@@ -105,6 +105,8 @@ fn tokenize_html(str: String) -> Vec<Token> {
         if chars[position].is_whitespace() {
             position += 1;
             continue;
+        } else if chars[position..].starts_with(&"<!DOCTYPE html>".chars().collect::<Vec<_>>()) {
+            position += "<!DOCTYPE html>".len();
         } else if chars[position] == '<' {
             tokens.push(Token::LAngle);
             position += 1;
@@ -120,13 +122,9 @@ fn tokenize_html(str: String) -> Vec<Token> {
         } else if chars[position] == '"' {
             let mut text = String::new();
             position += 1;
-            while position < chars.len() {
+            while position < chars.len() && chars[position] != '"' {
                 text.push(chars[position]);
                 position += 1;
-
-                if position < chars.len() && chars[position] == '"' {
-                    break;
-                }
             }
             tokens.push(Token::QuotedText(text));
             position += 1;
@@ -181,6 +179,21 @@ fn test_tokenize_html() {
                 Token::LAngle,
                 Token::Slash,
                 Token::Text("body".to_string()),
+                Token::RAngle,
+            ],
+        ),
+        (
+            r##"<p hoge=""></p>"##,
+            vec![
+                Token::LAngle,
+                Token::Text("p".to_string()),
+                Token::Text("hoge".to_string()),
+                Token::Equal,
+                Token::QuotedText("".to_string()),
+                Token::RAngle,
+                Token::LAngle,
+                Token::Slash,
+                Token::Text("p".to_string()),
                 Token::RAngle,
             ],
         ),
@@ -298,20 +311,50 @@ impl HtmlParser {
         }
         self.expect(Token::RAngle)?;
 
-        let children: Vec<HtmlElement> =
-            self.elements().context(format!("children of {}", name))?;
+        if name == "meta" {
+            return Ok(HtmlElement {
+                name,
+                attributes,
+                children: vec![],
+                text_node: None,
+            });
+        } else if name == "script" {
+            while !self.starts_with(&[
+                Token::LAngle,
+                Token::Slash,
+                Token::Text("script".to_string()),
+                Token::RAngle,
+            ]) {
+                self.position += 1;
+            }
 
-        self.expect(Token::LAngle)?;
-        self.expect(Token::Slash)?;
-        self.expect(Token::Text(name.clone()))?;
-        self.expect(Token::RAngle)?;
+            self.expect(Token::LAngle)?;
+            self.expect(Token::Slash)?;
+            self.expect(Token::Text("script".to_string()))?;
+            self.expect(Token::RAngle)?;
 
-        Ok(HtmlElement {
-            name,
-            attributes,
-            children,
-            text_node: None,
-        })
+            return Ok(HtmlElement {
+                name,
+                attributes,
+                children: vec![],
+                text_node: None,
+            });
+        } else {
+            let children: Vec<HtmlElement> =
+                self.elements().context(format!("children of {}", name))?;
+
+            self.expect(Token::LAngle)?;
+            self.expect(Token::Slash)?;
+            self.expect(Token::Text(name.clone()))?;
+            self.expect(Token::RAngle)?;
+
+            Ok(HtmlElement {
+                name,
+                attributes,
+                children,
+                text_node: None,
+            })
+        }
     }
 
     fn elements(&mut self) -> Result<Vec<HtmlElement>, anyhow::Error> {
@@ -535,9 +578,91 @@ fn test_parse_html() {
                 text_node: None,
             },
         ),
+        (
+            r##"<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Document</title>
+</head>
+<body>
+  
+</body>
+</html>"##,
+            HtmlElement {
+                name: "html".to_string(),
+                attributes: vec![("lang".to_string(), "en".to_string())],
+                children: vec![
+                    HtmlElement {
+                        name: "head".to_string(),
+                        attributes: vec![],
+                        children: vec![
+                            HtmlElement {
+                                name: "meta".to_string(),
+                                attributes: vec![("charset".to_string(), "UTF-8".to_string())],
+                                children: vec![],
+                                text_node: None,
+                            },
+                            HtmlElement {
+                                name: "meta".to_string(),
+                                attributes: vec![
+                                    ("name".to_string(), "viewport".to_string()),
+                                    (
+                                        "content".to_string(),
+                                        "width=device-width, initial-scale=1.0".to_string(),
+                                    ),
+                                ],
+                                children: vec![],
+                                text_node: None,
+                            },
+                            HtmlElement {
+                                name: "title".to_string(),
+                                attributes: vec![],
+                                children: vec![HtmlElement {
+                                    name: "textNode".to_string(),
+                                    attributes: vec![],
+                                    children: vec![],
+                                    text_node: Some("Document".to_string()),
+                                }],
+                                text_node: None,
+                            },
+                        ],
+                        text_node: None,
+                    },
+                    HtmlElement {
+                        name: "body".to_string(),
+                        attributes: vec![],
+                        children: vec![],
+                        text_node: None,
+                    },
+                ],
+                text_node: None,
+            },
+        ),
     ];
 
     for (str, want) in cases {
         assert_eq!(parse_html(str.to_string()).unwrap(), want);
+    }
+}
+
+#[test]
+fn test_smoke_parse_html() {
+    let cases = vec![
+        r###"
+        <!DOCTYPE html>
+        <html lang="ja">
+            <head prefix="og: https://ogp.me/ns#">
+                <meta charSet="utf-8"/>
+                <link rel="preload" href="/_next/static/media/08404bcfb1dae67a-s.p.woff2" as="font" crossorigin="" type="font/woff2"/>
+                <script src="/_next/static/chunks/fd9d1056-0bb21fb122762d6f.js" async="" crossorigin=""></script>
+            </head>
+        </html>
+        "###,
+    ];
+
+    for case in cases {
+        parse_html(case.to_string()).unwrap();
     }
 }

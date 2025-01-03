@@ -47,6 +47,7 @@ impl PaintExt {
 
 #[derive(Default)]
 struct App {
+    host: String,
     path: String,
     html: Arc<Mutex<Option<HtmlElement>>>,
     window: Arc<Mutex<Option<Window>>>,
@@ -106,7 +107,7 @@ impl ApplicationHandler for App {
                     canvas.draw_rect(Rect::new(20.0, 60.0, 1000.0, 110.0), &paint);
 
                     let text = TextBlob::from_str(
-                        format!("http://localhost:8000/{}", self.path),
+                        format!("http://{}/{}", self.host, self.path),
                         &Font::from_typeface(default_typeface(), 32.0),
                     )
                     .unwrap();
@@ -334,9 +335,9 @@ impl ApplicationHandler for App {
                 let window = self.window.clone();
 
                 if self.html.clone().lock().unwrap().is_none() {
-                    let path = self.path.clone();
+                    let url = format!("http://{}/{}", self.host, self.path);
                     tokio::spawn(async move {
-                        let resp = fetch(path).await.unwrap();
+                        let resp = fetch(url).await.unwrap();
                         *html.lock().unwrap() = Some(html::parse_html(resp).unwrap());
 
                         let window = window.lock().unwrap();
@@ -372,11 +373,9 @@ impl ApplicationHandler for App {
     }
 }
 
-async fn fetch(path: String) -> Result<String, Box<dyn std::error::Error>> {
-    let resp = reqwest::get(format!("http://localhost:8000/{}", path))
-        .await?
-        .text()
-        .await?;
+async fn fetch(url: String) -> Result<String, Box<dyn std::error::Error>> {
+    println!("Fetching: {}", url);
+    let resp = reqwest::get(url).await?.text().await?;
 
     Ok(resp)
 }
@@ -397,6 +396,9 @@ async fn ensure_server_started(url: &str, timeout: std::time::Duration) -> Resul
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let args: Vec<String> = std::env::args().collect();
+    let host = args.get(1).cloned().unwrap_or("localhost:8000".to_string());
+
     // extend the lifetime of the process to the end of the program
     let _process: DroppableProcess = DroppableProcess::new(
         Command::new("python")
@@ -413,6 +415,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     event_loop.set_control_flow(ControlFlow::Wait);
 
     let mut app = App::default();
+    app.host = host.clone();
     event_loop.run_app(&mut app).unwrap();
 
     Ok(())

@@ -84,7 +84,7 @@ impl CssParser {
     }
 
     fn expect(&mut self, token: Token) -> Result<(), anyhow::Error> {
-        if self.tokens[self.position] != token {
+        if self.position < self.tokens.len() && self.tokens[self.position] != token {
             bail!(
                 "Want {:?}, but got {:?} ({})",
                 token,
