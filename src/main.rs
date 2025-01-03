@@ -21,6 +21,7 @@ struct App {
     window: Arc<Mutex<Option<Window>>>,
     mouse_cursor_position: Mutex<(f32, f32)>,
     hyper_links: Arc<Mutex<Vec<(Rect, String)>>>,
+    current_color: Arc<Mutex<u32>>,
 }
 
 impl ApplicationHandler for App {
@@ -86,6 +87,10 @@ impl ApplicationHandler for App {
                     if let Some(html) = self.html.lock().unwrap().as_ref() {
                         let cursor_position = Mutex::new((25.0, 120.0 + 36.0));
                         let hyper_links = self.hyper_links.clone();
+                        let current_color = self.current_color.clone();
+                        {
+                            *current_color.lock().unwrap() = 0x00_00_00;
+                        }
                         html.walk(Rc::new(
                             move |trace: NodeTrace,
                                   name,
@@ -112,6 +117,29 @@ impl ApplicationHandler for App {
                                         paint.set_argb(0xFF, 0x00, 0x00, 0x00);
                                         canvas.draw_text_blob(&text, (25, 5 + 32), &paint);
                                     }
+                                } else if name == "body" {
+                                    for (key, value) in attributes {
+                                        if key == "bgcolor" {
+                                            let color = value.trim_start_matches("#");
+                                            let color = u32::from_str_radix(color, 16).unwrap();
+                                            paint.set_argb(
+                                                0xFF,
+                                                (color >> 16) as u8 & 0xFF,
+                                                (color >> 8) as u8 & 0xFF,
+                                                color as u8 & 0xFF,
+                                            );
+                                            canvas.draw_rect(
+                                                Rect::new(0.0, 120.0, width as f32, height as f32),
+                                                &paint,
+                                            );
+                                        } else if key == "text" {
+                                            *current_color.lock().unwrap() = u32::from_str_radix(
+                                                &value.trim_start_matches("#"),
+                                                16,
+                                            )
+                                            .unwrap();
+                                        }
+                                    }
                                 } else if trace.names().contains(&"body".to_string()) {
                                     let is_anchor = trace.names().ends_with(&["a".to_string()]);
                                     if let Some(text_node) = text_node {
@@ -123,7 +151,13 @@ impl ApplicationHandler for App {
                                             if is_anchor {
                                                 paint.set_argb(0xFF, 0x00, 0x55, 0xFF);
                                             } else {
-                                                paint.set_argb(0xFF, 0x00, 0x00, 0x00);
+                                                let color = *current_color.lock().unwrap();
+                                                paint.set_argb(
+                                                    0xFF,
+                                                    (color >> 16) as u8 & 0xFF,
+                                                    (color >> 8) as u8 & 0xFF,
+                                                    color as u8 & 0xFF,
+                                                );
                                             }
                                             let pos = *cursor_position.lock().unwrap();
                                             canvas.draw_text_blob(&text, (pos.0, pos.1), &paint);
