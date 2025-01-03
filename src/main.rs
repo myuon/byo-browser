@@ -16,6 +16,12 @@ mod helper;
 mod html;
 mod process;
 
+struct RendererState {
+    hyper_links: Vec<(Rect, String)>,
+    current_color: u32,
+    cursor_position: (f32, f32),
+}
+
 #[derive(Default)]
 struct App {
     path: String,
@@ -86,9 +92,12 @@ impl ApplicationHandler for App {
                     canvas.draw_text_blob(&text, (25, 60 + 36), &paint);
 
                     if let Some(html) = self.html.lock().unwrap().as_ref() {
-                        let cursor_position = Mutex::new((25.0, 120.0 + 36.0));
-                        let hyper_links = self.hyper_links.clone();
-                        let mut current_color = 0x00_00_00 as u32;
+                        let mut state = RendererState {
+                            hyper_links: Vec::new(),
+                            current_color: 0x00_00_00,
+                            cursor_position: (25.0, 120.0 + 36.0),
+                        };
+
                         html.walk(
                             Rc::new(
                                 move |trace: NodeTrace,
@@ -96,7 +105,7 @@ impl ApplicationHandler for App {
                                       attributes: Vec<(String, String)>,
                                       children: Vec<HtmlElement>,
                                       text_node: Option<String>,
-                                      current_color: &mut u32| {
+                                      state: &mut RendererState| {
                                     println!("{:?} ({:?})", trace, name);
                                     let mut paint = Paint::default();
 
@@ -138,7 +147,7 @@ impl ApplicationHandler for App {
                                                     &paint,
                                                 );
                                             } else if key == "text" {
-                                                *current_color = u32::from_str_radix(
+                                                state.current_color = u32::from_str_radix(
                                                     &value.trim_start_matches("#"),
                                                     16,
                                                 )
@@ -157,7 +166,7 @@ impl ApplicationHandler for App {
                                                 if is_anchor {
                                                     paint.set_argb(0xFF, 0x00, 0x55, 0xFF);
                                                 } else {
-                                                    let color = *current_color;
+                                                    let color = state.current_color;
                                                     paint.set_argb(
                                                         0xFF,
                                                         (color >> 16) as u8 & 0xFF,
@@ -165,7 +174,7 @@ impl ApplicationHandler for App {
                                                         color as u8 & 0xFF,
                                                     );
                                                 }
-                                                let pos = *cursor_position.lock().unwrap();
+                                                let pos = state.cursor_position;
                                                 canvas.draw_text_blob(
                                                     &text,
                                                     (pos.0, pos.1),
@@ -178,7 +187,7 @@ impl ApplicationHandler for App {
 
                                                     println!("Hyperlink: {:?}", attributes);
 
-                                                    hyper_links.lock().unwrap().push((
+                                                    state.hyper_links.push((
                                                         Rect::new(
                                                             pos.0,
                                                             pos.1 - 32.0,
@@ -201,20 +210,22 @@ impl ApplicationHandler for App {
                                                 let (_, rect) =
                                                     font.measure_str(text_node + " ", Some(&paint));
 
-                                                *cursor_position.lock().unwrap() =
+                                                state.cursor_position =
                                                     (pos.0 + rect.width() + 8.0, pos.1);
                                             }
                                         }
 
                                         if name == "br" {
-                                            let pos = *cursor_position.lock().unwrap();
-                                            *cursor_position.lock().unwrap() = (25.0, pos.1 + 36.0);
+                                            state.cursor_position =
+                                                (25.0, state.cursor_position.1 + 36.0);
                                         }
                                     }
                                 },
                             ),
-                            &mut current_color,
+                            &mut state,
                         );
+
+                        *self.hyper_links.lock().unwrap() = state.hyper_links;
                     }
 
                     let pixdata = canvas.peek_pixels().unwrap();
