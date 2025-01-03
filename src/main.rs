@@ -18,8 +18,28 @@ mod process;
 
 struct RendererState {
     hyper_links: Vec<(Rect, String)>,
-    current_color: u32,
+    current_color: String,
     cursor_position: (f32, f32),
+}
+
+#[derive(Default)]
+pub struct PaintExt(pub Paint);
+
+impl PaintExt {
+    pub fn set_color_hex(&mut self, hex: &str) {
+        let color = hex.trim_start_matches("#");
+        let color = u32::from_str_radix(color, 16).unwrap();
+        self.set_color_u32(color);
+    }
+
+    pub fn set_color_u32(&mut self, color: u32) {
+        self.0.set_argb(
+            0xFF,
+            (color >> 16) as u8 & 0xFF,
+            (color >> 8) as u8 & 0xFF,
+            color as u8 & 0xFF,
+        );
+    }
 }
 
 #[derive(Default)]
@@ -94,7 +114,7 @@ impl ApplicationHandler for App {
                     if let Some(html) = self.html.lock().unwrap().as_ref() {
                         let mut state = RendererState {
                             hyper_links: Vec::new(),
-                            current_color: 0x00_00_00,
+                            current_color: "#000000".to_string(),
                             cursor_position: (25.0, 120.0 + 36.0),
                         };
 
@@ -107,7 +127,7 @@ impl ApplicationHandler for App {
                                       text_node: Option<String>,
                                       state: &mut RendererState| {
                                     println!("{:?} ({:?})", trace, name);
-                                    let mut paint = Paint::default();
+                                    let mut paint = PaintExt::default();
 
                                     if trace.names().ends_with(&["title".to_string()]) {
                                         let mut title = String::new();
@@ -123,20 +143,13 @@ impl ApplicationHandler for App {
                                             &Font::from_typeface(default_typeface(), 32.0),
                                         );
                                         if let Some(text) = text {
-                                            paint.set_argb(0xFF, 0x00, 0x00, 0x00);
-                                            canvas.draw_text_blob(&text, (25, 5 + 32), &paint);
+                                            paint.set_color_hex("#000000");
+                                            canvas.draw_text_blob(&text, (25, 5 + 32), &paint.0);
                                         }
                                     } else if name == "body" {
                                         for (key, value) in attributes {
                                             if key == "bgcolor" {
-                                                let color = value.trim_start_matches("#");
-                                                let color = u32::from_str_radix(color, 16).unwrap();
-                                                paint.set_argb(
-                                                    0xFF,
-                                                    (color >> 16) as u8 & 0xFF,
-                                                    (color >> 8) as u8 & 0xFF,
-                                                    color as u8 & 0xFF,
-                                                );
+                                                paint.set_color_hex(&value);
                                                 canvas.draw_rect(
                                                     Rect::new(
                                                         0.0,
@@ -144,48 +157,40 @@ impl ApplicationHandler for App {
                                                         width as f32,
                                                         height as f32,
                                                     ),
-                                                    &paint,
+                                                    &paint.0,
                                                 );
                                             } else if key == "text" {
-                                                state.current_color = u32::from_str_radix(
-                                                    &value.trim_start_matches("#"),
-                                                    16,
-                                                )
-                                                .unwrap();
+                                                state.current_color = value.clone();
                                             }
                                         }
                                     } else if trace.names().contains(&"body".to_string()) {
                                         let is_anchor = trace.names().ends_with(&["a".to_string()]);
                                         if let Some(text_node) = text_node {
-                                            let mut paint = Paint::default();
+                                            let mut paint = PaintExt::default();
                                             let font =
                                                 Font::from_typeface(default_typeface(), 32.0);
 
                                             let text = TextBlob::from_str(&text_node, &font);
                                             if let Some(text) = text {
                                                 if is_anchor {
-                                                    paint.set_argb(0xFF, 0x00, 0x55, 0xFF);
+                                                    paint.0.set_argb(0xFF, 0x00, 0x55, 0xFF);
                                                 } else {
-                                                    let color = state.current_color;
-                                                    paint.set_argb(
-                                                        0xFF,
-                                                        (color >> 16) as u8 & 0xFF,
-                                                        (color >> 8) as u8 & 0xFF,
-                                                        color as u8 & 0xFF,
-                                                    );
+                                                    paint.set_color_hex(&state.current_color);
                                                 }
                                                 let pos = state.cursor_position;
                                                 canvas.draw_text_blob(
                                                     &text,
                                                     (pos.0, pos.1),
-                                                    &paint,
+                                                    &paint.0,
                                                 );
 
                                                 if is_anchor {
-                                                    let (_, rect) =
-                                                        font.measure_str(&text_node, Some(&paint));
+                                                    let (_, rect) = font
+                                                        .measure_str(&text_node, Some(&paint.0));
 
                                                     println!("Hyperlink: {:?}", attributes);
+
+                                                    let (_, attributes) = trace.0.last().unwrap();
 
                                                     state.hyper_links.push((
                                                         Rect::new(
@@ -194,11 +199,7 @@ impl ApplicationHandler for App {
                                                             pos.0 + rect.width(),
                                                             pos.1 + rect.height() - 32.0,
                                                         ),
-                                                        trace
-                                                            .0
-                                                            .last()
-                                                            .unwrap()
-                                                            .1
+                                                        attributes
                                                             .iter()
                                                             .find(|(key, _)| key == "href")
                                                             .unwrap()
@@ -207,8 +208,8 @@ impl ApplicationHandler for App {
                                                     ));
                                                 }
 
-                                                let (_, rect) =
-                                                    font.measure_str(text_node + " ", Some(&paint));
+                                                let (_, rect) = font
+                                                    .measure_str(text_node + " ", Some(&paint.0));
 
                                                 state.cursor_position =
                                                     (pos.0 + rect.width() + 8.0, pos.1);
