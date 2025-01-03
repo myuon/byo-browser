@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::num::NonZeroU32;
 use std::process::Command;
 use std::rc::Rc;
@@ -12,6 +13,7 @@ use winit::event::WindowEvent;
 use winit::event_loop::{ActiveEventLoop, ControlFlow, EventLoop};
 use winit::window::{Window, WindowId};
 
+mod css;
 mod helper;
 mod html;
 mod process;
@@ -20,6 +22,7 @@ struct RendererState {
     hyper_links: Vec<(Rect, String)>,
     current_color: String,
     cursor_position: (f32, f32),
+    layout: HashMap<String, String>,
 }
 
 #[derive(Default)]
@@ -116,16 +119,56 @@ impl ApplicationHandler for App {
                             hyper_links: Vec::new(),
                             current_color: "#000000".to_string(),
                             cursor_position: (25.0, 120.0 + 36.0),
+                            layout: HashMap::new(),
                         };
 
                         html.walk(
                             Rc::new(
                                 move |trace: NodeTrace,
-                                      name,
+                                      name: String,
+                                      index: usize,
                                       attributes: Vec<(String, String)>,
                                       children: Vec<HtmlElement>,
                                       text_node: Option<String>,
                                       state: &mut RendererState| {
+                                    if let Some((_, style)) =
+                                        attributes.iter().find(|(key, _)| key == "style")
+                                    {
+                                        let styles = css::parse_css(style.clone()).unwrap();
+
+                                        for style in styles.styles {
+                                            if let Some((_, display)) =
+                                                style.rules.iter().find(|(key, _)| key == "display")
+                                            {
+                                                if display == "flex" {
+                                                    let (_, gap_str) = style
+                                                        .rules
+                                                        .iter()
+                                                        .find(|(key, _)| key == "gap")
+                                                        .unwrap();
+
+                                                    for i in 0..children.len() {
+                                                        if i == 0 {
+                                                            continue;
+                                                        }
+
+                                                        state.layout.insert(
+                                                            trace.names().join(":")
+                                                                + ":"
+                                                                + children[i].name.as_str()
+                                                                + format!("[{}]", i).as_str()
+                                                                + "."
+                                                                + "gap-left",
+                                                            gap_str.clone(),
+                                                        );
+                                                    }
+                                                }
+                                            }
+                                        }
+
+                                        println!("{:?}", state.layout);
+                                    }
+
                                     println!("{:?} ({:?}:{:?})", trace, name, text_node);
                                     let mut paint = PaintExt::default();
 
@@ -165,6 +208,7 @@ impl ApplicationHandler for App {
                                         }
                                     } else if trace.names().contains(&"body".to_string()) {
                                         let is_anchor = trace.names().ends_with(&["a".to_string()]);
+                                        let is_text_node = text_node.is_some();
                                         if let Some(text_node) = text_node {
                                             let mut paint = PaintExt::default();
                                             let font =
@@ -208,26 +252,66 @@ impl ApplicationHandler for App {
                                                     ));
                                                 }
 
-                                                let (_, rect) = font
-                                                    .measure_str(text_node + " ", Some(&paint.0));
-
+                                                let (_, rect) =
+                                                    font.measure_str(text_node, Some(&paint.0));
                                                 state.cursor_position =
-                                                    (pos.0 + rect.width() + 8.0, pos.1);
+                                                    (pos.0 + rect.width(), pos.1);
                                             }
                                         }
 
                                         if name == "br" {
                                             state.cursor_position =
                                                 (25.0, state.cursor_position.1 + 36.0);
+                                        } else {
+                                            let gap = if let Some(gap_left) = state.layout.get(
+                                                &(trace.names().join(":")
+                                                    + format!("[{}]", index).as_str()
+                                                    + "."
+                                                    + "gap-left"),
+                                            ) {
+                                                if !is_text_node {
+                                                    gap_left
+                                                        .trim_end_matches("px")
+                                                        .parse::<f32>()
+                                                        .unwrap()
+                                                } else {
+                                                    8.0
+                                                }
+                                            } else {
+                                                if is_text_node {
+                                                    8.0
+                                                } else {
+                                                    0.0
+                                                }
+                                            };
+
+                                            state.cursor_position = (
+                                                state.cursor_position.0 + gap,
+                                                state.cursor_position.1,
+                                            );
                                         }
                                     }
                                 },
                             ),
-                            Rc::new(move |name: String, state: &mut RendererState| {
-                                if name == "div" {
-                                    state.cursor_position = (25.0, state.cursor_position.1 + 36.0);
-                                }
-                            }),
+                            Rc::new(
+                                move |trace: NodeTrace, name: String, state: &mut RendererState| {
+                                    if name == "div" {
+                                        state.cursor_position =
+                                            (25.0, state.cursor_position.1 + 36.0);
+                                    }
+
+                                    let mut key_to_remove = vec![];
+                                    for key in state.layout.keys() {
+                                        if key.starts_with(&(trace.names().join(":") + ":")) {
+                                            key_to_remove.push(key.clone());
+                                        }
+                                    }
+
+                                    for key in key_to_remove {
+                                        state.layout.remove(&key);
+                                    }
+                                },
+                            ),
                             &mut state,
                         );
 

@@ -1,9 +1,9 @@
-use std::rc::Rc;
+use std::{collections::HashMap, rc::Rc};
 
 use anyhow::{bail, Context};
 
 #[derive(Debug, PartialEq, Eq, Clone)]
-pub enum Token {
+enum Token {
     LAngle,
     RAngle,
     Slash,
@@ -32,24 +32,41 @@ pub struct HtmlElement {
 impl HtmlElement {
     pub fn walk<
         D,
-        F: Fn(NodeTrace, String, Vec<(String, String)>, Vec<HtmlElement>, Option<String>, &mut D),
-        G: Fn(String, &mut D),
+        F: Fn(
+            NodeTrace,
+            String,
+            usize,
+            Vec<(String, String)>,
+            Vec<HtmlElement>,
+            Option<String>,
+            &mut D,
+        ),
+        G: Fn(NodeTrace, String, &mut D),
     >(
         &self,
         f: Rc<F>,
         g: Rc<G>,
         d: &mut D,
     ) {
-        self.walk_trace(&mut NodeTrace(vec![]), f, g, d);
+        self.walk_trace(&mut NodeTrace(vec![]), 0, f, g, d);
     }
 
     pub fn walk_trace<
         D,
-        F: Fn(NodeTrace, String, Vec<(String, String)>, Vec<HtmlElement>, Option<String>, &mut D),
-        G: Fn(String, &mut D),
+        F: Fn(
+            NodeTrace,
+            String,
+            usize,
+            Vec<(String, String)>,
+            Vec<HtmlElement>,
+            Option<String>,
+            &mut D,
+        ),
+        G: Fn(NodeTrace, String, &mut D),
     >(
         &self,
         trace: &mut NodeTrace,
+        index: usize,
         f: Rc<F>,
         g: Rc<G>,
         d: &mut D,
@@ -62,17 +79,18 @@ impl HtmlElement {
         f(
             trace.clone(),
             self.name.clone(),
+            index,
             self.attributes.clone(),
             self.children.clone(),
             self.text_node.clone(),
             d,
         );
 
-        for child in &self.children {
-            child.walk_trace(trace, f.clone(), g.clone(), d);
+        for (i, child) in self.children.iter().enumerate() {
+            child.walk_trace(trace, i, f.clone(), g.clone(), d);
         }
 
-        g(self.name.clone(), d);
+        g(trace.clone(), self.name.clone(), d);
 
         *trace = prev;
     }
