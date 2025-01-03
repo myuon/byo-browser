@@ -23,7 +23,6 @@ struct App {
     window: Arc<Mutex<Option<Window>>>,
     mouse_cursor_position: Mutex<(f32, f32)>,
     hyper_links: Arc<Mutex<Vec<(Rect, String)>>>,
-    current_color: Arc<Mutex<u32>>,
 }
 
 impl ApplicationHandler for App {
@@ -89,122 +88,133 @@ impl ApplicationHandler for App {
                     if let Some(html) = self.html.lock().unwrap().as_ref() {
                         let cursor_position = Mutex::new((25.0, 120.0 + 36.0));
                         let hyper_links = self.hyper_links.clone();
-                        let current_color = self.current_color.clone();
-                        {
-                            *current_color.lock().unwrap() = 0x00_00_00;
-                        }
-                        html.walk(Rc::new(
-                            move |trace: NodeTrace,
-                                  name,
-                                  attributes: Vec<(String, String)>,
-                                  children: Vec<HtmlElement>,
-                                  text_node: Option<String>| {
-                                println!("{:?} ({:?})", trace, name);
-                                let mut paint = Paint::default();
+                        let mut current_color = 0x00_00_00 as u32;
+                        html.walk(
+                            Rc::new(
+                                move |trace: NodeTrace,
+                                      name,
+                                      attributes: Vec<(String, String)>,
+                                      children: Vec<HtmlElement>,
+                                      text_node: Option<String>,
+                                      current_color: &mut u32| {
+                                    println!("{:?} ({:?})", trace, name);
+                                    let mut paint = Paint::default();
 
-                                if trace.names().ends_with(&["title".to_string()]) {
-                                    let mut title = String::new();
-                                    for child in children {
-                                        title.push_str(&child.text_node.unwrap());
-                                        title.push_str(" ");
-                                    }
-
-                                    println!("Title: {}", title);
-
-                                    let text = TextBlob::from_str(
-                                        title,
-                                        &Font::from_typeface(default_typeface(), 32.0),
-                                    );
-                                    if let Some(text) = text {
-                                        paint.set_argb(0xFF, 0x00, 0x00, 0x00);
-                                        canvas.draw_text_blob(&text, (25, 5 + 32), &paint);
-                                    }
-                                } else if name == "body" {
-                                    for (key, value) in attributes {
-                                        if key == "bgcolor" {
-                                            let color = value.trim_start_matches("#");
-                                            let color = u32::from_str_radix(color, 16).unwrap();
-                                            paint.set_argb(
-                                                0xFF,
-                                                (color >> 16) as u8 & 0xFF,
-                                                (color >> 8) as u8 & 0xFF,
-                                                color as u8 & 0xFF,
-                                            );
-                                            canvas.draw_rect(
-                                                Rect::new(0.0, 120.0, width as f32, height as f32),
-                                                &paint,
-                                            );
-                                        } else if key == "text" {
-                                            *current_color.lock().unwrap() = u32::from_str_radix(
-                                                &value.trim_start_matches("#"),
-                                                16,
-                                            )
-                                            .unwrap();
+                                    if trace.names().ends_with(&["title".to_string()]) {
+                                        let mut title = String::new();
+                                        for child in children {
+                                            title.push_str(&child.text_node.unwrap());
+                                            title.push_str(" ");
                                         }
-                                    }
-                                } else if trace.names().contains(&"body".to_string()) {
-                                    let is_anchor = trace.names().ends_with(&["a".to_string()]);
-                                    if let Some(text_node) = text_node {
-                                        let mut paint = Paint::default();
-                                        let font = Font::from_typeface(default_typeface(), 32.0);
 
-                                        let text = TextBlob::from_str(&text_node, &font);
+                                        println!("Title: {}", title);
+
+                                        let text = TextBlob::from_str(
+                                            title,
+                                            &Font::from_typeface(default_typeface(), 32.0),
+                                        );
                                         if let Some(text) = text {
-                                            if is_anchor {
-                                                paint.set_argb(0xFF, 0x00, 0x55, 0xFF);
-                                            } else {
-                                                let color = *current_color.lock().unwrap();
+                                            paint.set_argb(0xFF, 0x00, 0x00, 0x00);
+                                            canvas.draw_text_blob(&text, (25, 5 + 32), &paint);
+                                        }
+                                    } else if name == "body" {
+                                        for (key, value) in attributes {
+                                            if key == "bgcolor" {
+                                                let color = value.trim_start_matches("#");
+                                                let color = u32::from_str_radix(color, 16).unwrap();
                                                 paint.set_argb(
                                                     0xFF,
                                                     (color >> 16) as u8 & 0xFF,
                                                     (color >> 8) as u8 & 0xFF,
                                                     color as u8 & 0xFF,
                                                 );
-                                            }
-                                            let pos = *cursor_position.lock().unwrap();
-                                            canvas.draw_text_blob(&text, (pos.0, pos.1), &paint);
-
-                                            if is_anchor {
-                                                let (_, rect) =
-                                                    font.measure_str(&text_node, Some(&paint));
-
-                                                println!("Hyperlink: {:?}", attributes);
-
-                                                hyper_links.lock().unwrap().push((
+                                                canvas.draw_rect(
                                                     Rect::new(
-                                                        pos.0,
-                                                        pos.1 - 32.0,
-                                                        pos.0 + rect.width(),
-                                                        pos.1 + rect.height() - 32.0,
+                                                        0.0,
+                                                        120.0,
+                                                        width as f32,
+                                                        height as f32,
                                                     ),
-                                                    trace
-                                                        .0
-                                                        .last()
-                                                        .unwrap()
-                                                        .1
-                                                        .iter()
-                                                        .find(|(key, _)| key == "href")
-                                                        .unwrap()
-                                                        .1
-                                                        .clone(),
-                                                ));
+                                                    &paint,
+                                                );
+                                            } else if key == "text" {
+                                                *current_color = u32::from_str_radix(
+                                                    &value.trim_start_matches("#"),
+                                                    16,
+                                                )
+                                                .unwrap();
                                             }
+                                        }
+                                    } else if trace.names().contains(&"body".to_string()) {
+                                        let is_anchor = trace.names().ends_with(&["a".to_string()]);
+                                        if let Some(text_node) = text_node {
+                                            let mut paint = Paint::default();
+                                            let font =
+                                                Font::from_typeface(default_typeface(), 32.0);
 
-                                            let (_, rect) =
-                                                font.measure_str(text_node + " ", Some(&paint));
+                                            let text = TextBlob::from_str(&text_node, &font);
+                                            if let Some(text) = text {
+                                                if is_anchor {
+                                                    paint.set_argb(0xFF, 0x00, 0x55, 0xFF);
+                                                } else {
+                                                    let color = *current_color;
+                                                    paint.set_argb(
+                                                        0xFF,
+                                                        (color >> 16) as u8 & 0xFF,
+                                                        (color >> 8) as u8 & 0xFF,
+                                                        color as u8 & 0xFF,
+                                                    );
+                                                }
+                                                let pos = *cursor_position.lock().unwrap();
+                                                canvas.draw_text_blob(
+                                                    &text,
+                                                    (pos.0, pos.1),
+                                                    &paint,
+                                                );
 
-                                            *cursor_position.lock().unwrap() =
-                                                (pos.0 + rect.width() + 8.0, pos.1);
+                                                if is_anchor {
+                                                    let (_, rect) =
+                                                        font.measure_str(&text_node, Some(&paint));
+
+                                                    println!("Hyperlink: {:?}", attributes);
+
+                                                    hyper_links.lock().unwrap().push((
+                                                        Rect::new(
+                                                            pos.0,
+                                                            pos.1 - 32.0,
+                                                            pos.0 + rect.width(),
+                                                            pos.1 + rect.height() - 32.0,
+                                                        ),
+                                                        trace
+                                                            .0
+                                                            .last()
+                                                            .unwrap()
+                                                            .1
+                                                            .iter()
+                                                            .find(|(key, _)| key == "href")
+                                                            .unwrap()
+                                                            .1
+                                                            .clone(),
+                                                    ));
+                                                }
+
+                                                let (_, rect) =
+                                                    font.measure_str(text_node + " ", Some(&paint));
+
+                                                *cursor_position.lock().unwrap() =
+                                                    (pos.0 + rect.width() + 8.0, pos.1);
+                                            }
+                                        }
+
+                                        if name == "br" {
+                                            let pos = *cursor_position.lock().unwrap();
+                                            *cursor_position.lock().unwrap() = (25.0, pos.1 + 36.0);
                                         }
                                     }
-
-                                    if name == "br" {
-                                        let pos = *cursor_position.lock().unwrap();
-                                        *cursor_position.lock().unwrap() = (25.0, pos.1 + 36.0);
-                                    }
-                                }
-                            },
-                        ));
+                                },
+                            ),
+                            &mut current_color,
+                        );
                     }
 
                     let pixdata = canvas.peek_pixels().unwrap();

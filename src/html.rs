@@ -31,20 +31,24 @@ pub struct HtmlElement {
 
 impl HtmlElement {
     pub fn walk<
-        F: Fn(NodeTrace, String, Vec<(String, String)>, Vec<HtmlElement>, Option<String>),
+        D,
+        F: Fn(NodeTrace, String, Vec<(String, String)>, Vec<HtmlElement>, Option<String>, &mut D),
     >(
         &self,
         f: Rc<F>,
+        d: &mut D,
     ) {
-        self.walk_trace(&mut NodeTrace(vec![]), f);
+        self.walk_trace(&mut NodeTrace(vec![]), f, d);
     }
 
     pub fn walk_trace<
-        F: Fn(NodeTrace, String, Vec<(String, String)>, Vec<HtmlElement>, Option<String>),
+        D,
+        F: Fn(NodeTrace, String, Vec<(String, String)>, Vec<HtmlElement>, Option<String>, &mut D),
     >(
         &self,
         trace: &mut NodeTrace,
         f: Rc<F>,
+        d: &mut D,
     ) {
         let prev = trace.clone();
         if self.name != "textNode" {
@@ -57,10 +61,11 @@ impl HtmlElement {
             self.attributes.clone(),
             self.children.clone(),
             self.text_node.clone(),
+            d,
         );
 
         for child in &self.children {
-            child.walk_trace(trace, f.clone());
+            child.walk_trace(trace, f.clone(), d);
         }
 
         *trace = prev;
