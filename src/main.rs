@@ -1,10 +1,11 @@
 use std::num::NonZeroU32;
-use std::process::{Child, Command};
+use std::process::Command;
 use std::rc::Rc;
 use std::sync::{Arc, Mutex};
 
 use helper::default_typeface;
 use html::{HtmlElement, NodeTrace};
+use process::DroppableProcess;
 use skia_safe::{Font, Paint, Rect, TextBlob};
 use winit::application::ApplicationHandler;
 use winit::event::WindowEvent;
@@ -13,6 +14,7 @@ use winit::window::{Window, WindowId};
 
 mod helper;
 mod html;
+mod process;
 
 #[derive(Default)]
 struct App {
@@ -266,27 +268,6 @@ async fn fetch(path: String) -> Result<String, Box<dyn std::error::Error>> {
         .await?;
 
     Ok(resp)
-}
-
-struct DroppableProcess {
-    child: Child,
-}
-
-impl DroppableProcess {
-    fn new(command: &mut Command) -> Result<Self, Box<dyn std::error::Error>> {
-        let child = command.spawn()?;
-        Ok(Self { child })
-    }
-}
-
-impl Drop for DroppableProcess {
-    fn drop(&mut self) {
-        println!("Killing child process");
-
-        if let Err(err) = self.child.kill() {
-            eprintln!("Failed to kill child process: {}", err);
-        }
-    }
 }
 
 async fn ensure_server_started(url: &str, timeout: std::time::Duration) -> Result<(), String> {
